@@ -531,6 +531,7 @@ status_t DeviceHalHidl::setConnectedState(const struct audio_port_v7 *port, bool
         supportsSetConnectedState7_1 = false;
     }
 #endif
+#if MAJOR_VERSION >= 4
     DeviceAddress hidlAddress;
     if (status_t result = CoreUtils::deviceAddressFromHal(
                     port->ext.device.type, port->ext.device.address, &hidlAddress);
@@ -538,11 +539,21 @@ status_t DeviceHalHidl::setConnectedState(const struct audio_port_v7 *port, bool
         return result;
     }
     return processReturn("setConnectedState", mDevice->setConnectedState(hidlAddress, connected));
+#else
+    (void)port;
+    (void)connected;
+    return INVALID_OPERATION;
+#endif
 }
 
 error::Result<audio_hw_sync_t> DeviceHalHidl::getHwAvSync() {
     TIME_CHECK();
     if (mDevice == 0) return NO_INIT;
+#if MAJOR_VERSION == 2
+    Return<audio_hw_sync_t> ret = mDevice->getHwAvSync();
+    if (!ret.isOk()) return processReturn("getHwAvSync", ret);
+    return static_cast<audio_hw_sync_t>(ret);
+#else
     audio_hw_sync_t value;
     Result result;
     Return<void> ret = mDevice->getHwAvSync([&value, &result](Result r, audio_hw_sync_t v) {
@@ -551,6 +562,7 @@ error::Result<audio_hw_sync_t> DeviceHalHidl::getHwAvSync() {
     });
     RETURN_IF_ERROR(processReturn("getHwAvSync", ret, result));
     return value;
+#endif
 }
 
 status_t DeviceHalHidl::dump(int fd, const Vector<String16>& args) {

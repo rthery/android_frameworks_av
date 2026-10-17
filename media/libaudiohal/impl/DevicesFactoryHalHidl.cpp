@@ -114,6 +114,7 @@ status_t DevicesFactoryHalHidl::openDevice(const char *name, sp<DeviceHalInterfa
     Result retval = Result::NOT_INITIALIZED;
     for (const auto& factory : factories) {
         Return<void> ret;
+#if MAJOR_VERSION >= 4
         if (strcmp(name, AUDIO_HARDWARE_MODULE_ID_PRIMARY) == 0) {
             // In V7.1 it's not possible to cast IDevice back to IPrimaryDevice,
             // thus openPrimaryDevice must be used.
@@ -129,7 +130,9 @@ status_t DevicesFactoryHalHidl::openDevice(const char *name, sp<DeviceHalInterfa
                             *device = new DeviceHalHidl(result);
                         }
                     });
-        } else {
+        } else
+#endif
+        {
 #if MAJOR_VERSION == 7 && MINOR_VERSION == 1
             ret = factory->openDevice_7_1(
 #else
