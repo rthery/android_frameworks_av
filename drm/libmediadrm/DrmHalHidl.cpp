@@ -619,10 +619,12 @@ DrmStatus DrmHalHidl::openSession(DrmPlugin::SecurityLevel level, Vector<uint8_t
     bool retry = true;
     do {
         hidl_vec<uint8_t> hSessionId;
+        bool callbackCalled = false;
 
         Return<void> hResult;
         if (mPluginV1_1 == NULL || !setSecurityLevel) {
             hResult = mPlugin->openSession([&](Status status, const hidl_vec<uint8_t>& id) {
+                callbackCalled = true;
                 if (status == Status::OK) {
                     sessionId = toVector(id);
                 }
@@ -631,6 +633,7 @@ DrmStatus DrmHalHidl::openSession(DrmPlugin::SecurityLevel level, Vector<uint8_t
         } else {
             hResult = mPluginV1_1->openSession_1_1(hSecurityLevel,
                                                    [&](Status status, const hidl_vec<uint8_t>& id) {
+                                                       callbackCalled = true;
                                                        if (status == Status::OK) {
                                                            sessionId = toVector(id);
                                                        }
@@ -640,6 +643,10 @@ DrmStatus DrmHalHidl::openSession(DrmPlugin::SecurityLevel level, Vector<uint8_t
 
         if (!hResult.isOk()) {
             err = DEAD_OBJECT;
+        } else if (!callbackCalled) {
+            // Oreo Widevine HALs return without a status when the device needs provisioning.
+            ALOGW("openSession: no status from the HAL, assuming not provisioned");
+            err = ERROR_DRM_NOT_PROVISIONED;
         }
 
         if (err == ERROR_DRM_RESOURCE_BUSY && retry) {
@@ -906,10 +913,12 @@ DrmStatus DrmHalHidl::provideProvisionResponse(Vector<uint8_t> const& response,
     INIT_CHECK();
 
     DrmStatus err = UNKNOWN_ERROR;
+    bool callbackCalled = false;
 
     Return<void> hResult = mPlugin->provideProvisionResponse(
             toHidlVec(response), [&](Status status, const hidl_vec<uint8_t>& hCertificate,
                                      const hidl_vec<uint8_t>& hWrappedKey) {
+                callbackCalled = true;
                 if (status == Status::OK) {
                     certificate = toVector(hCertificate);
                     wrappedKey = toVector(hWrappedKey);
@@ -917,7 +926,13 @@ DrmStatus DrmHalHidl::provideProvisionResponse(Vector<uint8_t> const& response,
                 err = toStatusT(status);
             });
 
-    err = hResult.isOk() ? err : DEAD_OBJECT;
+    if (!hResult.isOk()) {
+        err = DEAD_OBJECT;
+    } else if (!callbackCalled) {
+        // Oreo Widevine HALs store the L1 certificate and return without a status.
+        ALOGW("provideProvisionResponse: no status from the HAL, assuming success");
+        err = OK;
+    }
     mMetrics.mProvideProvisionResponseCounter.Increment(err);
     return err;
 }
