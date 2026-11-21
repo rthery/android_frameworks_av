@@ -203,6 +203,7 @@ public:
         ALOGD("%s: checking for service %s: %p", __func__, getServiceName(), service.get());
 
         ul.lock();
+        if (service) waitForNewService_l(ul, waitMs);
         // return the IAudioFlinger interface which is adapted
         // from the media::IAudioFlingerService.
         return mService;
@@ -282,6 +283,7 @@ private:
             client = mClient;
             mValid = true;
         }
+        mCv.notify_all();
         // TODO(b/375280520) consider registerClient() within mMutex lock.
         const int64_t token = IPCThreadState::self()->clearCallingIdentity();
         service->registerClient(client);
@@ -295,6 +297,14 @@ private:
         return sp<AudioFlingerClientAdapter>::make(af);
     }
 
+    // ServiceSingleton marks the service valid before onNewService() sets mService.
+    static void waitForNewService_l(audio_utils::unique_lock<std::mutex>& ul,
+            std::chrono::milliseconds waitMs) REQUIRES(mMutex) {
+        const auto end = std::chrono::steady_clock::now() + waitMs;
+        while (!mValid && mCv.wait_until(ul, end) == std::cv_status::no_timeout) {}
+    }
+
+    static inline std::condition_variable mCv;
     static inline constinit std::mutex mMutex;
     static inline constinit sp<AudioSystem::AudioFlingerClient> mClient GUARDED_BY(mMutex);
     static inline constinit sp<IAudioFlinger> mService GUARDED_BY(mMutex);
@@ -1011,6 +1021,7 @@ public:
             mService = aps;
             mValid = true;
         }
+        mCv.notify_all();
         // TODO(b/375280520) consider registerClient() within mMutex lock.
         const int64_t token = IPCThreadState::self()->clearCallingIdentity();
         aps->registerClient(client);
@@ -1079,6 +1090,7 @@ public:
         // (whereupon mService contained the actual local service pointer to use).
         // we should always return mService.
         ul.lock();
+        if (service) waitForNewService_l(ul, waitMs);
         return mService;
     }
 
@@ -1124,6 +1136,14 @@ public:
     }
 private:
 
+    // ServiceSingleton marks the service valid before onNewService() sets mService.
+    static void waitForNewService_l(audio_utils::unique_lock<std::mutex>& ul,
+            std::chrono::milliseconds waitMs) REQUIRES(mMutex) {
+        const auto end = std::chrono::steady_clock::now() + waitMs;
+        while (!mValid && mCv.wait_until(ul, end) == std::cv_status::no_timeout) {}
+    }
+
+    static inline std::condition_variable mCv;
     static inline constinit std::mutex mMutex;
     static inline constinit sp<AudioSystem::AudioPolicyServiceClient> mClient GUARDED_BY(mMutex);
     static inline constinit sp<IAudioPolicyService> mService GUARDED_BY(mMutex);
